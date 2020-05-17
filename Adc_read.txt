@@ -1,0 +1,66 @@
+module adc_read(clk, D, Start, led_tr, led_ch, led_dv);
+input clk;
+input [7:0]D;
+output reg Start;
+output reg [6:0]led_tr=7'h3f;
+output reg [6:0]led_ch=7'h3f;
+output reg [6:0]led_dv=7'h3f;
+reg [6:0]temp_tr=7'h3f;
+reg [6:0]temp_ch=7'h3f;
+reg [6:0]temp_dv=7'h3f;
+reg [20:0]dem=0;
+reg [7:0]temp=0;
+always @(posedge clk) begin
+	if (dem==0) Start=1;
+	else if (dem==10) Start=0;
+	else if (dem==110) temp=D;
+	else if (dem==500)
+		begin
+			dem=0;
+		end
+	dem=dem+1;
+	temp_tr=temp/100;
+	temp_ch=(temp%100)/10;
+	temp_dv=temp%10;
+	
+	case(temp_tr)
+		0:led_tr=7'h3f;
+		1:led_tr=7'h06;
+		2:led_tr=7'h5b;
+		3:led_tr=7'h4f;
+		4:led_tr=7'h66;
+		5:led_tr=7'h6d;
+		6:led_tr=7'h7d;
+		7:led_tr=7'h07;
+		8:led_tr=7'h7f;
+		9:led_tr=7'h6f;
+		default: led_tr = 7'h3f;
+	endcase
+	case(temp_ch)
+		0:led_ch=7'h3f;
+		1:led_ch=7'h06;
+		2:led_ch=7'h5b;
+		3:led_ch=7'h4f;
+		4:led_ch=7'h66;
+		5:led_ch=7'h6d;
+		6:led_ch=7'h7d;
+		7:led_ch=7'h07;
+		8:led_ch=7'h7f;
+		9:led_ch=7'h6f;
+		default: led_ch = 7'h3f;
+	endcase
+	case(temp_dv)
+		0:led_dv=7'h3f;
+		1:led_dv=7'h06;
+		2:led_dv=7'h5b;
+		3:led_dv=7'h4f;
+		4:led_dv=7'h66;
+		5:led_dv=7'h6d;
+		6:led_dv=7'h7d;
+		7:led_dv=7'h07;
+		8:led_dv=7'h7f;
+		9:led_dv=7'h6f;
+		default: led_dv = 7'h3f;
+	endcase
+	end
+endmodule
