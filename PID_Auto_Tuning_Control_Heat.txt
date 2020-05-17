@@ -1,0 +1,275 @@
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include <math.h>
+#define PI 3.1416
+float GetTemp(void);
+void first_order_lowpass(void) ;
+void OnOff(void);
+void Pid(void);
+void AuToTuning(void);
+TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
+UART_HandleTypeDef huart1;
+DMA_HandleTypeDef hdma_usart1_tx;
+/* USER CODE BEGIN PV */
+struct dulieugui{
+float nhietdo;
+float kp;
+float ki;
+float kd;
+};
+struct dulieunhan {
+float kp;
+float ki;
+float kd;
+float settemp;
+float time;
+float mode; // mode phai luon duoc kieu tra
+float open;
+};
+///
+float T = 2; // thoi gian lay mau
+float error[3]; // tinh sai so nhiet do
+float temp_conf[]={0.1f,0.9f}; // he so bo lloc thong thap
+float control[2] = {0,0}; // gia tri phan tram cong suat
+uint8_t open=1; // kiem tra thermocouple co ho mach khong
+uint32_t Timer =0, Ta =0,Tc=0;
+float ymax,ymin;
+// pwm
+struct thongso{
+float temp0;
+float temp1;
+float ki;
+float kp;
+float kd;
+float settemp;
+float temp_auto;
+float pwm;
+};
+/* USER CODE END PV */
+struct dulieugui dataout, *out;
+struct dulieunhan datain, *in;
+struct thongso thongso1= {0,0,0,0,0,0,0,0}, *thgso;
+uint8_t *pointer, *pointer1; // pointer truyen vao dma de truyen du lieu
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_USART1_UART_Init(void);
+static void MX_TIM1_Init(void);
+int main(void)
+{
+ /* USER CODE BEGIN 1 */
+out = &dataout ;
+in = &datain;
+thgso =&thongso1;
+pointer = (uint8_t*)out;
+pointer1 =(uint8_t*)in;
+thgso->kp = 23.4;
+ HAL_Init();
+ SystemClock_Config();
+ MX_GPIO_Init();
+ MX_DMA_Init();
+ MX_TIM3_Init();
+ MX_TIM2_Init();
+ MX_USART1_UART_Init();
+ MX_TIM1_Init();
+ /* USER CODE BEGIN 2 */
+HAL_TIM_PWM_Start(&htim3,TIM_CHANNEL_2);
+HAL_GPIO_WritePin(GPIOA,GPIO_PIN_4,GPIO_PIN_SET);
+HAL_Delay(500);
+// Dat thong so datain ban dau
+thongso1.temp0 = GetTemp();
+//Kp=0.0276;Ki=0.000007;Kd=1.826
+HAL_TIM_Base_Start_IT(&htim1);
+HAL_UART_Receive_IT(&huart1, pointer1, 28);
+ /* Infinite loop */
+ /* USER CODE BEGIN WHILE */
+ while (1)
+ {
+ /* USER CODE END WHILE */
+switch((uint32_t)datain.mode)
+{
+case 0: OnOff();
+break;
+case 1: Pid();
+break;
+case 2: AuToTuning();
+break;
+//default : thongso1.temp0 = GetTemp();
+default: first_order_lowpass();
+break;
+}
+ /* USER CODE BEGIN 3 */
+ }
+ /* USER CODE END 3 */
+}
+// ham doc nhiet do tu thermorcouple
+float GetTemp(void){
+uint8_t buffer_bit[16];
+int16_t buffer =0;
+float temperature_instance;
+HAL_GPIO_WritePin(GPIOA,GPIO_PIN_4,GPIO_PIN_RESET);
+for(int i=0;i<16;i++)
+{HAL_GPIO_WritePin(GPIOA,GPIO_PIN_5,GPIO_PIN_SET);
+buffer_bit[i]=HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_6);
+if (i>0 && i <13)
+{buffer=buffer<<1;
+if (HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_6)==1)
+{buffer++;}
+}
+HAL_GPIO_WritePin(GPIOA,GPIO_PIN_5,GPIO_PIN_RESET);
+}
+open = buffer_bit[13];
+temperature_instance=buffer/4.0;
+HAL_GPIO_WritePin(GPIOA,GPIO_PIN_4,GPIO_PIN_SET);
+HAL_Delay(200);
+return temperature_instance;
+}
+////
+// cap nhat gia tri nhiet do
+// nhap doi so la thongso1.temp1
+// de tinh nhiet do trung binh
+void first_order_lowpass(void)
+{
+thongso1.temp1= thongso1.temp0;
+thongso1.temp0 = (0.1*GetTemp()+0.9*thongso1.temp1);
+}
+//////
+void OnOff(void){
+//thongso1.temp0 = GetTemp();
+first_order_lowpass();
+while (datain.open) {
+first_order_lowpass(); // cap nhat gia tri
+if (thongso1.temp0 > datain.settemp)
+{
+__HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,00);
+}
+else
+{
+__HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,1600);//1600/2
+000=80%duty
+}
+HAL_Delay(1800);
+}
+}
+/////
+void Pid(void) {
+////////////////////////Cap nhat thong so ban dau//////////////////
+HAL_TIM_Base_Start_IT(&htim2);
+error[2]=0;
+error[1]=0;
+error[0]=0;
+if (datain.mode==1)
+{
+//thongso1.temp0 = GetTemp();
+first_order_lowpass();
+// cap nhat thong so PID dau tien
+HAL_Delay(1000);
+thgso->kd = in->kd;
+thgso->ki = in->ki;
+thgso->kp = in->kp;
+}
+//Kp=0.0276;Ki=0.000007;Kd=1.826;
+while (datain.open)
+{
+first_order_lowpass();
+error[0]=datain.settemp - thongso1.temp0;
+// luat dieu khien pid
+control[0] = control[1]+thongso1.kp*(error[0] - error[1])
++0.5*thongso1.ki*T*(error[0] + error[1])+thongso1.kd/T*(
+error[0] - 2*error[1]+ error[2]);
+///
+/*
+P=Kp*(error - pre_error);
+I=0.5*Ki*(error + pre_error);
+D=Kd*( error - 2*pre_error+ pre_pre_error);
+*/
+// cap nhat thong so luat dieu khien
+error[2]=error[1];
+error[1] = error[0];
+control[1]= control[0];
+if (control[0]<0) control[0]=0;
+if (control[0]>1) control[0]=1;
+// tinh toan cong suat va xuat ra
+thongso1.pwm=sqrt(control[0])*1600;
+__HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,(uint32_t)thon
+gso1.pwm);
+HAL_Delay(1800);
+}
+__HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,0);
+}
+////
+/////
+void AuToTuning(void){
+////// cap nhat thong so ban dau /////
+HAL_TIM_Base_Start_IT(&htim2);
+uint8_t select = 0;
+error[2]=0;
+error[1]=0;
+error[0]=0;
+HAL_TIM_Base_Start_IT(&htim2); // tinh Tc
+int dem = 0;
+//thongso1.temp0 = GetTemp();
+first_order_lowpass();
+thongso1.temp_auto = 0.7f*datain.settemp;
+ymax=thongso1.temp_auto;
+ymin=thongso1.temp_auto;
+// bat dau
+while (datain.open==1)
+{
+first_order_lowpass();
+if (select==0){// bat dau qua trinh ONOFF
+error[0]=thongso1.temp_auto-thongso1.temp0;
+if (error[0]<0)
+{
+__HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,00);// gia tri
+pwm =0
+}
+else // nguoc lai thi maxgang
+{
+__HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,1414);//1600/2
+000=80%duty
+}
+if ((error[0]>=0)&&(error[1]<0)&&(error[2]<0))
+{
+if(dem==1)
+{
+if ((Timer-Ta)>1000) dem++;
+}
+else if (dem==0) dem++;
+}
+error[2]=error[1];
+error[1] = error[0];
+control[1]= control[0];
+if (dem==1){
+if(Ta==0) Ta=Timer;
+if(ymax<thongso1.temp0) ymax=thongso1.temp0;
+if(ymin>thongso1.temp0) ymin=thongso1.temp0;
+}
+if (dem==2)
+{
+Tc=(Timer-Ta)/1000;
+thongso1.kp= cos(5.0f*PI/12.0f)*4*0.5/(PI*(ymaxymin));
+thongso1.kd=thongso1.kp*Tc/(4*PI)*(tan(5.0f*PI/12.0f)
++sqrt(4/4.0f+tan(5.0f*PI/12.0f)*tan(5.0f*PI/12.0f)));
+thongso1.ki =
+thongso1.kp/(thongso1.kd/thongso1.kp*4.0f);
+select=1;
+error[2]=0;
+error[1]=0;
+error[0]=0;
+//Ti=Timer;
+HAL_TIM_Base_Stop_IT(&htim2); // tat interrupt
+Timer = 0;
+}
+HAL_Delay(1800);
+}
+if (select==1){ // bat dau qua trinh pid
+Pid();
+}
+}
+}
