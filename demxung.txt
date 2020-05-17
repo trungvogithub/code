@@ -1,0 +1,26 @@
+module demxung(clk,mode,pulse,D);
+input clk,mode,pulse;
+output reg[15:0]D;
+reg [15:0] temp=0;
+reg [20:0] dem=0;
+reg pre_pulse=0;
+
+always @(posedge clk) begin
+		dem=dem+1;
+		pre_pulse<=pulse;
+		if ({pre_pulse,pulse}==2'b01)
+			temp=temp+1;
+		if ((mode==0)&&(dem==100))
+			begin
+				D=temp;
+				dem=0;
+				temp=0;
+			end
+		else if ((mode==1)&&(dem==1000))
+			begin
+				D=temp;
+				dem=0;
+				temp=0;
+			end
+	end
+endmodule
